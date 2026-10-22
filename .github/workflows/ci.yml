@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+jobs:
+  # Lint once (formatting + lint checks); independent of the test matrix
+  # so a style nit can't mask test results or block them from running.
+  lint:
+    if: "!startsWith(github.ref, 'refs/tags/')"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx @biomejs/biome check .
+
+  test:
+    if: "!startsWith(github.ref, 'refs/tags/')"
+    strategy:
+      matrix:
+        node-version: [24]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+      - run: npm ci
+      - run: npx vitest run
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: ./.github/ci/release.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
