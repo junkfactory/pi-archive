@@ -68,14 +68,22 @@ count, e.g. `archived 3 from 2 families, purged 0`.
 
 ### Picker keys
 
-| Key             | Action                                             |
-|-----------------|----------------------------------------------------|
-| `Tab`           | Cycle scope: `Current` → `All` → `Archived`        |
-| `↑` / `↓`       | Move (or `pgup` / `pgdn` for a page)               |
-| `Enter`         | Open the selected session                          |
-| `u`             | Restore the selected archived family               |
-| `a`             | Archive the selected session and its family        |
-| `ctrl+d`        | Delete (press `ctrl+d` again to confirm)           || `Esc`           | Close the picker (or cancel a pending delete)      |
+| Key             | Action                                                  |
+|-----------------|---------------------------------------------------------|
+| `letters`       | Type to search                                          |
+| `Tab`           | Cycle scope: `Current` → `All` → `Archived`             |
+| `↑` / `↓`       | Move (or `pgup` / `pgdn` for a page)                    |
+| `Enter`         | Open the selected session                               |
+| `ctrl+a`        | Archive the selected family (Current/All only)          |
+| `ctrl+u`        | Restore the selected family (Archived only)             |
+| `ctrl+d`        | Delete (press `ctrl+d` again to confirm)                |
+| `Esc`           | Clear the query, or close the picker when it is empty   |
+
+Typing while the picker is open starts a search. A query matches each session's id, name, first
+message, user/assistant message text, and cwd; tool output and thinking blocks are not searched.
+While a query is active, results are shown flat (no fork tree) and ordered by relevance.
+Inside the search box `ctrl+a` and `ctrl+u` mean archive and restore — they do **not** move to line
+start or delete the line.
 
 - `Current` is the sessions of the working directory, `All` is every project, `Archived` is every
   `archive/` directory.
@@ -85,8 +93,8 @@ count, e.g. `archived 3 from 2 families, purged 0`.
   states how many sessions die before a second `ctrl+d` is accepted.
 - Selecting an archived session restores it to its project directory first, then resumes it; `/new`
   afterwards lands next to the restored file, not inside `archive/`.
-- `a` is refused for the open session, for a family that contains the open session, and for a family
-  another running pi window has open.
+- `ctrl+a` is refused for the open session, for a family that contains the open session, and for a
+  family another running pi window has open.
 
 ## Families
 
@@ -94,10 +102,10 @@ Sessions and their forks are treated as one unit:
 
 - A family archives **only** when every member is stale and none is the active session. A recent
   child keeps an old parent active, and a stale child never moves on its own.
-- Archiving a session archives its whole family (same as the sweep), so a manual `a` cannot leave
-  children behind in another project directory.
-- Restoring (`u`, or `Enter` on an archived row) restores the whole family together, so restoring a
-  parent never leaves children archived.
+- Archiving a session archives its whole family (same as the sweep), so a manual `ctrl+a` cannot
+  leave children behind in another project directory.
+- Restoring (`ctrl+u`, or `Enter` on an archived row) restores the whole family together, so
+  restoring a parent never leaves children archived.
 - A **split** family (some members in `archive/`, some still in a project directory) is never
   purged, no matter how old the archived copies are. The sweep report lists it as `split`.
 
@@ -127,8 +135,8 @@ The age-based sweep scans only `~/.pi/agent/sessions`. If you start pi with a cu
 `--session-dir`:
 
 - the sweep ignores those sessions (they are never auto-archived or auto-purged);
-- a manual `a` in the picker still works, and the result is visible under `Archived`, because the
-  picker also reads `<sessionDir>/archive`.
+- a manual `ctrl+a` in the picker still works, and the result is visible under `Archived`, because
+  the picker also reads `<sessionDir>/archive`.
 
 ## Uninstall / rollback
 

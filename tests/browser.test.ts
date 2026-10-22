@@ -1,6 +1,7 @@
 import type { SessionInfo, Theme } from "@earendil-works/pi-coding-agent";
 import {
 	KeybindingsManager,
+	setKeybindings,
 	type TUI,
 	TUI_KEYBINDINGS,
 	visibleWidth,
@@ -36,23 +37,27 @@ function session(
 const ACTIVE = session("/repo/project/active.jsonl", {
 	firstMessage: "Active session",
 	messageCount: 6,
+	allMessagesText: "deploy the zebra service",
 });
 const CHILD = session("/repo/project/child.jsonl", {
 	firstMessage: "Fork child",
 	parentSessionPath: ACTIVE.path,
 	messageCount: 2,
 	modified: new Date(NOW - 120_000),
+	allMessagesText: "fork child",
 });
 const OTHER = session("/repo/project/other.jsonl", {
 	firstMessage: "Other session",
 	messageCount: 10,
 	modified: new Date(NOW - 180_000),
+	allMessagesText: "nothing to see",
 });
 const ARCHIVED_PARENT = session("/repo/project/archive/old.jsonl", {
 	firstMessage: "Archived parent",
 	cwd: "/repo/legacy",
 	messageCount: 9,
 	modified: new Date(NOW - 240_000),
+	allMessagesText: "archived parent notes",
 });
 const ARCHIVED_CHILD = session("/repo/project/archive/old-fork.jsonl", {
 	firstMessage: "Archived fork",
@@ -60,6 +65,7 @@ const ARCHIVED_CHILD = session("/repo/project/archive/old-fork.jsonl", {
 	parentSessionPath: ARCHIVED_PARENT.path,
 	messageCount: 3,
 	modified: new Date(NOW - 300_000),
+	allMessagesText: "archived fork notes",
 });
 
 const FIXTURES: Record<Scope, SessionInfo[]> = {
@@ -75,6 +81,9 @@ const KEYBINDINGS = new KeybindingsManager({
 		description: "Delete session",
 	},
 }) as unknown as SessionBrowserOptions["keybindings"];
+
+// `Input` reads the global keybindings, so the harness must install its own.
+setKeybindings(KEYBINDINGS);
 
 interface Harness {
 	browser: SessionBrowser;
@@ -179,15 +188,15 @@ describe("SessionBrowser rendering", () => {
 		expect(lines[0]).toContain("Current (3)");
 		expect(lines[0]).toContain("All (…)");
 		expect(lines[0]).toContain("Archived (…)");
-		expect(lines[1]).toContain("Tab scope");
-		expect(lines[2]).toBe("");
-		expect(lines).toHaveLength(6);
-		expect(lines[3]?.startsWith("› ")).toBe(true);
-		expect(lines[3]).toContain("Active session");
-		expect(lines[4]).toContain("Fork child");
-		expect(lines[4]).toContain("└─ ");
-		expect(lines[5]).toContain("Other session");
-		expect(lines[3]).toMatch(/\b6 (now|\d+[mhdw])$/);
+		expect(lines[2]).toContain("Tab scope");
+		expect(lines[3]).toBe("");
+		expect(lines).toHaveLength(4 + 3);
+		expect(lines[4]?.startsWith("› ")).toBe(true);
+		expect(lines[4]).toContain("Active session");
+		expect(lines[5]).toContain("Fork child");
+		expect(lines[5]).toContain("└─ ");
+		expect(lines[6]).toContain("Other session");
+		expect(lines[4]).toMatch(/\b6 (now|\d+[mhdw])$/);
 		for (const line of lines) {
 			expect(visibleWidth(line)).toBeLessThanOrEqual(80);
 		}
@@ -230,7 +239,7 @@ describe("SessionBrowser rendering", () => {
 		const harness = makeHarness({ deps: { loadScope: async () => many } });
 		await settle();
 		const lines = harness.browser.render(80);
-		expect(lines).toHaveLength(3 + 10 + 1);
+		expect(lines).toHaveLength(4 + 10 + 1);
 		expect(lines.join("\n")).toContain("(1/14)");
 
 		for (let index = 0; index < 13; index++) {
@@ -238,8 +247,8 @@ describe("SessionBrowser rendering", () => {
 		}
 		const scrolled = harness.browser.render(80);
 		expect(scrolled.join("\n")).toContain("(14/14)");
-		expect(scrolled[3]?.startsWith("› ")).toBe(false);
-		expect(scrolled[12]?.startsWith("› ")).toBe(true);
+		expect(scrolled[4]?.startsWith("› ")).toBe(false);
+		expect(scrolled[13]?.startsWith("› ")).toBe(true);
 	});
 
 	it("renders a load error inline and keeps the picker open", async () => {
@@ -301,10 +310,10 @@ describe("SessionBrowser scopes", () => {
 		const harness = makeHarness();
 		await settle();
 		harness.browser.handleInput("\x1b[B");
-		expect(harness.browser.render(80)[4]?.startsWith("› ")).toBe(true);
+		expect(harness.browser.render(80)[5]?.startsWith("› ")).toBe(true);
 		harness.browser.handleInput("\t");
 		await settle();
-		expect(harness.browser.render(80)[3]?.startsWith("› ")).toBe(true);
+		expect(harness.browser.render(80)[4]?.startsWith("› ")).toBe(true);
 	});
 });
 
@@ -313,14 +322,14 @@ describe("SessionBrowser movement and selection", () => {
 		const harness = makeHarness();
 		await settle();
 		harness.browser.handleInput("\x1b[A");
-		expect(harness.browser.render(80)[3]?.startsWith("› ")).toBe(true);
-
-		harness.browser.handleInput("\x1b[B");
 		expect(harness.browser.render(80)[4]?.startsWith("› ")).toBe(true);
 
 		harness.browser.handleInput("\x1b[B");
-		harness.browser.handleInput("\x1b[B");
 		expect(harness.browser.render(80)[5]?.startsWith("› ")).toBe(true);
+
+		harness.browser.handleInput("\x1b[B");
+		harness.browser.handleInput("\x1b[B");
+		expect(harness.browser.render(80)[6]?.startsWith("› ")).toBe(true);
 	});
 
 	it("selects the highlighted session with enter", async () => {
@@ -347,7 +356,7 @@ describe("SessionBrowser movement and selection", () => {
 		await settle();
 		harness.browser.handleInput("\r");
 		expect(harness.onSelect).not.toHaveBeenCalled();
-		expect(harness.browser.render(80)[1]).toContain("Session already active");
+		expect(harness.browser.render(80)[2]).toContain("Session already active");
 	});
 });
 
@@ -355,7 +364,7 @@ describe("SessionBrowser archive", () => {
 	it("archives the whole family from the All set and drops the rows", async () => {
 		const harness = makeHarness();
 		await settle();
-		harness.browser.handleInput("a");
+		harness.browser.handleInput("\x01");
 		await settle();
 
 		expect(harness.loadScope).toHaveBeenCalledWith("all");
@@ -365,18 +374,18 @@ describe("SessionBrowser archive", () => {
 		expect(rendered).not.toContain("Fork child");
 		expect(rendered).toContain("Other session");
 		expect(harness.browser.render(80)[0]).toContain("Current (1)");
-		expect(harness.browser.render(80)[1]).toContain("Archived 2 session(s)");
+		expect(harness.browser.render(80)[2]).toContain("Archived 2 session(s)");
 	});
 
 	it("refuses the open session without calling a dep", async () => {
 		const harness = makeHarness({ activePath: ACTIVE.path });
 		await settle();
-		harness.browser.handleInput("a");
+		harness.browser.handleInput("\x01");
 		await settle();
 
 		expect(harness.archive).not.toHaveBeenCalled();
 		expect(harness.loadScope).toHaveBeenCalledTimes(1);
-		expect(harness.browser.render(80)[1]).toContain(
+		expect(harness.browser.render(80)[2]).toContain(
 			"Cannot archive the active session",
 		);
 		harness.browser.render(80);
@@ -391,11 +400,11 @@ describe("SessionBrowser archive", () => {
 	it("refuses a row whose family contains the open session", async () => {
 		const harness = makeHarness({ activePath: CHILD.path });
 		await settle();
-		harness.browser.handleInput("a");
+		harness.browser.handleInput("\x01");
 		await settle();
 
 		expect(harness.archive).not.toHaveBeenCalled();
-		expect(harness.browser.render(80)[1]).toContain(
+		expect(harness.browser.render(80)[2]).toContain(
 			"family contains the active session",
 		);
 	});
@@ -404,19 +413,19 @@ describe("SessionBrowser archive", () => {
 		const isLive = vi.fn(async (path: string) => path === CHILD.path);
 		const harness = makeHarness({ deps: { isLive } });
 		await settle();
-		harness.browser.handleInput("a");
+		harness.browser.handleInput("\x01");
 		await settle();
 
 		expect(isLive).toHaveBeenCalledWith(CHILD.path);
 		expect(harness.archive).not.toHaveBeenCalled();
-		expect(harness.browser.render(80)[1]).toContain("session is in use");
+		expect(harness.browser.render(80)[2]).toContain("session is in use");
 	});
 
-	it("ignores a on an archived row", async () => {
+	it("ignores ctrl+a on an archived row", async () => {
 		const harness = makeHarness();
 		await settle();
 		await openArchived(harness);
-		harness.browser.handleInput("a");
+		harness.browser.handleInput("\x01");
 		await settle();
 		expect(harness.archive).not.toHaveBeenCalled();
 	});
@@ -428,7 +437,7 @@ describe("SessionBrowser archive", () => {
 			},
 		});
 		await settle();
-		harness.browser.handleInput("a");
+		harness.browser.handleInput("\x01");
 		await settle();
 		expect(text(harness)).toContain("cannot move file");
 		expect(text(harness)).toContain("Active session");
@@ -440,7 +449,7 @@ describe("SessionBrowser unarchive", () => {
 		const harness = makeHarness();
 		await settle();
 		await openArchived(harness);
-		harness.browser.handleInput("u");
+		harness.browser.handleInput("\x15");
 		await settle();
 
 		expect(harness.unarchive).toHaveBeenCalledWith(ARCHIVED_PARENT.path);
@@ -453,10 +462,10 @@ describe("SessionBrowser unarchive", () => {
 		expect(harness.loadScope).toHaveBeenCalledTimes(3);
 	});
 
-	it("ignores u on an active row", async () => {
+	it("ignores ctrl+u on an active row", async () => {
 		const harness = makeHarness();
 		await settle();
-		harness.browser.handleInput("u");
+		harness.browser.handleInput("\x15");
 		await settle();
 		expect(harness.unarchive).not.toHaveBeenCalled();
 	});
@@ -469,7 +478,7 @@ describe("SessionBrowser unarchive", () => {
 		});
 		await settle();
 		await openArchived(harness);
-		harness.browser.handleInput("u");
+		harness.browser.handleInput("\x15");
 		await settle();
 		expect(text(harness)).toContain("restore denied");
 		expect(text(harness)).toContain("Archived parent");
@@ -483,7 +492,7 @@ describe("SessionBrowser delete", () => {
 		harness.browser.handleInput("\x04");
 		expect(harness.remove).not.toHaveBeenCalled();
 		await settle();
-		expect(harness.browser.render(80)[1]).toContain("Delete 2 sessions");
+		expect(harness.browser.render(80)[2]).toContain("Delete 2 sessions");
 
 		harness.browser.handleInput("\x04");
 		await settle();
@@ -502,7 +511,7 @@ describe("SessionBrowser delete", () => {
 		harness.browser.handleInput("\x04");
 		expect(harness.remove).not.toHaveBeenCalled();
 		await settle();
-		expect(harness.browser.render(80)[1]).toContain("Delete 2 sessions");
+		expect(harness.browser.render(80)[2]).toContain("Delete 2 sessions");
 	});
 
 	it("drops every deleted row when remove reports a subtree", async () => {
@@ -514,7 +523,7 @@ describe("SessionBrowser delete", () => {
 		await settle();
 		harness.browser.handleInput("\x04");
 		await settle();
-		expect(harness.browser.render(80)[1]).toContain("Delete 2 sessions");
+		expect(harness.browser.render(80)[2]).toContain("Delete 2 sessions");
 		harness.browser.handleInput("\x04");
 		await settle();
 		const rendered = text(harness);
@@ -532,8 +541,8 @@ describe("SessionBrowser delete", () => {
 		harness.browser.handleInput("\x1b");
 		expect(harness.onClose).not.toHaveBeenCalled();
 		expect(harness.remove).not.toHaveBeenCalled();
-		expect(harness.browser.render(80)[1]).not.toContain("Delete session");
-		expect(harness.browser.render(80)[1]).toContain("Tab scope");
+		expect(harness.browser.render(80)[2]).not.toContain("Delete session");
+		expect(harness.browser.render(80)[2]).toContain("Tab scope");
 
 		harness.browser.handleInput("\x1b");
 		expect(harness.onClose).toHaveBeenCalledTimes(1);
@@ -552,5 +561,208 @@ describe("SessionBrowser delete", () => {
 		await settle();
 		expect(text(harness)).toContain("unlink denied");
 		expect(text(harness)).toContain("Active session");
+	});
+});
+
+describe("SessionBrowser search", () => {
+	it("filters to the matching row and drops the tree prefix", async () => {
+		const harness = makeHarness();
+		await settle();
+		harness.browser.handleInput("zebra");
+
+		const filtered = harness.browser.render(80);
+		expect(filtered[1]).toContain("zebra");
+		expect(filtered).toHaveLength(4 + 1);
+		expect(filtered[4]).toContain("Active session");
+		expect(filtered.join("\n")).not.toContain("Fork child");
+		expect(filtered.join("\n")).not.toContain("Other session");
+		expect(filtered.join("\n")).not.toContain("└─");
+
+		// A query matching a parent and its fork renders both flat.
+		harness.browser.handleInput("\x1b");
+		harness.browser.handleInput("project");
+		const flat = harness.browser.render(80);
+		expect(flat.join("\n")).toContain("Fork child");
+		expect(flat.join("\n")).not.toContain("└─");
+	});
+
+	it("types letters instead of archiving or restoring", async () => {
+		const harness = makeHarness();
+		await settle();
+		harness.browser.handleInput("a");
+		await settle();
+
+		expect(harness.archive).not.toHaveBeenCalled();
+		expect(harness.unarchive).not.toHaveBeenCalled();
+		expect(harness.browser.render(80)[0]).toContain("Current (1/3)");
+		const rendered = text(harness);
+		expect(rendered).toContain("Active session");
+		expect(rendered).not.toContain("Fork child");
+	});
+
+	it("matches text that exists only in the transcript", async () => {
+		const harness = makeHarness();
+		await settle();
+		harness.browser.handleInput("service");
+
+		const rendered = text(harness);
+		expect(rendered).toContain("Active session");
+		expect(rendered).not.toContain("Fork child");
+		expect(rendered).not.toContain("Other session");
+	});
+
+	it("ranks a name hit before a content-only hit", async () => {
+		const named = session("/repo/project/named.jsonl", {
+			name: "Quartz migration",
+			firstMessage: "Quartz migration",
+			allMessagesText: "unrelated notes",
+		});
+		const content = session("/repo/project/content.jsonl", {
+			firstMessage: "Content only",
+			allMessagesText: "we discussed quartz yesterday",
+		});
+		const harness = makeHarness({
+			deps: { loadScope: async () => [content, named] },
+		});
+		await settle();
+		harness.browser.handleInput("quartz");
+
+		const rendered = text(harness);
+		expect(rendered).toContain("Quartz migration");
+		expect(rendered).toContain("Content only");
+		expect(rendered.indexOf("Quartz migration")).toBeLessThan(
+			rendered.indexOf("Content only"),
+		);
+	});
+
+	it("reports no matches and never archives from an empty list", async () => {
+		const harness = makeHarness();
+		await settle();
+		harness.browser.handleInput("zzzz");
+		expect(text(harness)).toContain('No matches for "zzzz"');
+
+		harness.browser.handleInput("\x01");
+		await settle();
+		expect(harness.archive).not.toHaveBeenCalled();
+		expect(text(harness)).toContain('No matches for "zzzz"');
+	});
+
+	it("clears the query on the first escape and closes on the second", async () => {
+		const harness = makeHarness();
+		await settle();
+		harness.browser.handleInput("zebra");
+		harness.browser.handleInput("\x1b");
+
+		expect(harness.onClose).not.toHaveBeenCalled();
+		const cleared = harness.browser.render(80);
+		expect(cleared[1]).not.toContain("zebra");
+		expect(cleared[0]).toContain("Current (3)");
+		expect(cleared).toHaveLength(4 + 3);
+
+		harness.browser.handleInput("\x1b");
+		expect(harness.onClose).toHaveBeenCalledTimes(1);
+	});
+
+	it("archives the selected row while filtered and drops it", async () => {
+		const harness = makeHarness();
+		await settle();
+		harness.browser.handleInput("zebra");
+		harness.browser.handleInput("\x01");
+		await settle();
+
+		expect(harness.archive).toHaveBeenCalledWith(ACTIVE.path);
+		const rendered = text(harness);
+		expect(rendered).not.toContain("Active session");
+		expect(rendered).not.toContain("Fork child");
+	});
+
+	it("restores the selected archived row while filtered", async () => {
+		const harness = makeHarness();
+		await settle();
+		await openArchived(harness);
+		harness.browser.handleInput("parent");
+		expect(text(harness)).toContain("Archived parent");
+
+		harness.browser.handleInput("\x15");
+		await settle();
+
+		expect(harness.unarchive).toHaveBeenCalledWith(ARCHIVED_PARENT.path);
+		expect(harness.onSelect).not.toHaveBeenCalled();
+		const rendered = text(harness);
+		expect(rendered).not.toContain("Archived parent");
+		expect(rendered).not.toContain("Archived fork");
+	});
+
+	it("keeps the query across a scope switch", async () => {
+		const harness = makeHarness();
+		await settle();
+		harness.browser.handleInput("zebra");
+		harness.browser.handleInput("\t");
+		await settle();
+
+		const lines = harness.browser.render(80);
+		expect(lines[1]).toContain("zebra");
+		expect(lines[0]).toContain("All (1/5)");
+		expect(lines.join("\n")).toContain("Active session");
+		expect(lines.join("\n")).not.toContain("Archived parent");
+	});
+
+	it("shows the filtered and the cleared counts in the header", async () => {
+		const harness = makeHarness();
+		await settle();
+		harness.browser.handleInput("zebra");
+		expect(harness.browser.render(80)[0]).toContain("Current (1/3)");
+
+		harness.browser.handleInput("\x1b");
+		const cleared = harness.browser.render(80);
+		expect(cleared[0]).toContain("Current (3)");
+		expect(cleared[0]).not.toContain("(1/3)");
+	});
+
+	it("shows the cwd in All but not in Current", async () => {
+		const harness = makeHarness();
+		await settle();
+		const current = harness.browser.render(80).slice(4).join("\n");
+		expect(current).not.toContain("/repo/project");
+
+		harness.browser.handleInput("\t");
+		await settle();
+		const all = harness.browser.render(80).slice(4).join("\n");
+		expect(all).toContain("/repo/project");
+	});
+
+	it("shows the scope-appropriate action key in the hint", async () => {
+		const harness = makeHarness();
+		await settle();
+		expect(harness.browser.render(80)[2]).toContain("ctrl+a archive");
+		expect(harness.browser.render(80)[2]).not.toContain("ctrl+u restore");
+
+		harness.browser.handleInput("\t");
+		await settle();
+		expect(harness.browser.render(80)[2]).toContain("ctrl+a archive");
+		expect(harness.browser.render(80)[2]).not.toContain("ctrl+u restore");
+
+		harness.browser.handleInput("\t");
+		await settle();
+		expect(harness.browser.render(80)[2]).toContain("ctrl+u restore");
+		expect(harness.browser.render(80)[2]).not.toContain("ctrl+a archive");
+	});
+
+	it("ignores restore in Current and archive in Archived", async () => {
+		const harness = makeHarness();
+		await settle();
+		const current = harness.browser.render(80)[2];
+
+		harness.browser.handleInput("\x15");
+		await settle();
+		expect(harness.unarchive).not.toHaveBeenCalled();
+		expect(harness.browser.render(80)[2]).toBe(current);
+
+		await openArchived(harness);
+		const archived = harness.browser.render(80)[2];
+		harness.browser.handleInput("\x01");
+		await settle();
+		expect(harness.archive).not.toHaveBeenCalled();
+		expect(harness.browser.render(80)[2]).toBe(archived);
 	});
 });

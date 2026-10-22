@@ -17,6 +17,8 @@ import type {
 import {
 	type Component,
 	type Focusable,
+	fuzzyFilter,
+	Input,
 	matchesKey,
 	type TUI,
 	truncateToWidth,
@@ -77,8 +79,18 @@ const LABELS: Record<Scope, string> = {
 };
 const MAX_VISIBLE = 10;
 const PAGE_SIZE = 5;
-const HINT =
-	"Tab scope · ↑↓ move · Enter open · u restore · a archive · Ctrl+D delete · Esc close";
+
+function hint(scope: Scope): string {
+	return [
+		"type to search",
+		"Tab scope",
+		"↑↓ move",
+		"Enter open",
+		scope === "archived" ? "ctrl+u restore" : "ctrl+a archive",
+		"ctrl+d delete",
+		"Esc clear/close",
+	].join(" · ");
+}
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -93,8 +105,26 @@ function treePrefix(row: Row): string {
 	return parts.join("") + (row.isLast ? "└─ " : "├─ ");
 }
 
+/** Same searchable text as pi's built-in picker (session-selector-search.js). */
+function searchText(session: SessionInfo): string {
+	return `${session.id} ${session.name ?? ""} ${session.allMessagesText} ${session.cwd}`;
+}
+
 export class SessionBrowser implements Component, Focusable {
-	focused = false;
+	private readonly searchInput: Input;
+	private query = "";
+	private dataVersion = 0;
+	private filtered:
+		| { scope: Scope; query: string; version: number; rows: Row[] }
+		| undefined;
+
+	get focused(): boolean {
+		return this.searchInput.focused;
+	}
+
+	set focused(value: boolean) {
+		this.searchInput.focused = value;
+	}
 
 	private readonly activePath: string | undefined;
 	private readonly theme: Theme;
@@ -122,6 +152,10 @@ export class SessionBrowser implements Component, Focusable {
 		this.activePath = options.activePath;
 		this.scope = options.initialScope;
 		this.theme = options.theme;
+		this.searchInput = new Input({
+			placeholder: "Search name, message, path…",
+			placeholderStyle: (text) => this.theme.fg("muted", text),
+		});
 		this.keybindings = options.keybindings;
 		this.tui = options.tui;
 		this.deps = options.deps;
@@ -191,6 +225,10 @@ export class SessionBrowser implements Component, Focusable {
 			return;
 		}
 		if (keybindings.matches(data, "tui.select.cancel")) {
+			if (this.query !== "") {
+				this.clearQuery();
+				return;
+			}
 			this.onClose();
 			return;
 		}
@@ -198,19 +236,51 @@ export class SessionBrowser implements Component, Focusable {
 			this.startDelete();
 			return;
 		}
-		if (matchesKey(data, "a")) {
+		if (matchesKey(data, "ctrl+a")) {
 			void this.archiveSelected();
 			return;
 		}
-		if (matchesKey(data, "u")) {
+		if (matchesKey(data, "ctrl+u")) {
 			void this.unarchiveSelected();
+			return;
 		}
+		this.searchInput.handleInput(data);
+		if (this.searchInput.getValue() !== this.query) {
+			this.query = this.searchInput.getValue();
+			this.selectedIndex = 0;
+		}
+		this.touch();
 	}
 
 	// ---- state -------------------------------------------------------------
 
 	private rows(scope: Scope = this.scope): Row[] {
-		return buildRows(this.scopes[scope] ?? []);
+		const sessions = this.scopes[scope] ?? [];
+		const query = this.query.trim();
+		if (!query) return buildRows(sessions);
+		const cached = this.filtered;
+		if (
+			cached?.scope === scope &&
+			cached.query === query &&
+			cached.version === this.dataVersion
+		) {
+			return cached.rows;
+		}
+		const rows = fuzzyFilter(sessions, query, searchText).map((session) => ({
+			session,
+			depth: 0,
+			isLast: true,
+			ancestorContinues: [],
+		}));
+		this.filtered = { scope, query, version: this.dataVersion, rows };
+		return rows;
+	}
+
+	private clearQuery(): void {
+		this.searchInput.setValue("");
+		this.query = "";
+		this.selectedIndex = 0;
+		this.touch();
 	}
 
 	private isActive(path: string): boolean {
@@ -244,6 +314,7 @@ export class SessionBrowser implements Component, Focusable {
 				(session) => !keys.has(resolve(session.path)),
 			);
 		}
+		this.dataVersion++;
 	}
 
 	/** Lazy load: one call per scope, cached even when the load fails. */
@@ -261,6 +332,7 @@ export class SessionBrowser implements Component, Focusable {
 			.then(
 				(sessions) => {
 					this.scopes[scope] = sessions;
+					this.dataVersion++;
 					return sessions;
 				},
 				(error: unknown) => {
@@ -448,6 +520,10 @@ export class SessionBrowser implements Component, Focusable {
 
 	private countLabel(scope: Scope): string {
 		const sessions = this.scopes[scope];
+		const query = this.query.trim();
+		if (sessions !== undefined && query !== "" && scope === this.scope) {
+			return `${LABELS[scope]} (${this.rows(scope).length}/${sessions.length})`;
+		}
 		const count = sessions === undefined ? "…" : String(sessions.length);
 		return `${LABELS[scope]} (${count})`;
 	}
@@ -475,7 +551,10 @@ export class SessionBrowser implements Component, Focusable {
 				truncateToWidth(this.status, width, "…"),
 			);
 		}
-		return this.theme.fg("muted", truncateToWidth(HINT, width, "…"));
+		return this.theme.fg(
+			"muted",
+			truncateToWidth(hint(this.scope), width, "…"),
+		);
 	}
 
 	private rowLine(row: Row, index: number, width: number): string {
@@ -489,10 +568,9 @@ export class SessionBrowser implements Component, Focusable {
 			"(untitled)";
 		const age = formatAge(session.modified);
 		const meta = `${session.messageCount} ${age}`;
+		const showCwd = this.scope === "all" || this.scope === "archived";
 		const right =
-			this.scope === "archived" && session.cwd
-				? `${shortenPath(session.cwd)} ${meta}`
-				: meta;
+			showCwd && session.cwd ? `${shortenPath(session.cwd)} ${meta}` : meta;
 
 		const available =
 			width - 2 - visibleWidth(prefix) - visibleWidth(right) - 1;
@@ -513,7 +591,12 @@ export class SessionBrowser implements Component, Focusable {
 	}
 
 	private buildLines(width: number): string[] {
-		const lines = [this.headerLine(width), this.hintLine(width), ""];
+		const lines = [
+			this.headerLine(width),
+			...this.searchInput.render(width),
+			this.hintLine(width),
+			"",
+		];
 		if (
 			this.loading.includes(this.scope) ||
 			this.scopes[this.scope] === undefined
@@ -524,7 +607,13 @@ export class SessionBrowser implements Component, Focusable {
 		const rows = this.rows();
 		this.clampSelection(rows.length);
 		if (rows.length === 0) {
-			lines.push(this.theme.fg("muted", "  No sessions"));
+			const query = this.query.trim();
+			lines.push(
+				this.theme.fg(
+					"muted",
+					query !== "" ? `  No matches for "${query}"` : "  No sessions",
+				),
+			);
 			return lines;
 		}
 		const start = Math.max(

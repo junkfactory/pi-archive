@@ -30,6 +30,7 @@ Within that session:
 
 - `/pi-archive` opens the picker — three scopes, `Tab` cycles, `↑`/`↓` move, `Esc` returns to the
   editor.
+- Type to filter; `Esc` clears; `Tab` keeps the query.
 - `/pi-archive sweep` prints a one-line report (`archived N from M families, purged P`) and never
   throws into the handler.
 - Startup stays responsive: the auto-sweep runs detached on `session_start` and is silent on
@@ -94,12 +95,19 @@ diff -r --brief ~/.pi/agent/sessions /tmp/pa-agent/sessions | head -40
 - [ ] `Enter` on an active session switches to it (transcript matches `/resume`); the old session
       file is untouched on disk.
 - [ ] `Enter` on the already-open session shows `Session already active` and the picker stays open.
-- [ ] `a` on a session whose family contains the open session is refused with a status line and
-      moves nothing (`diff` stays clean).
-- [ ] `a` on a session with a fork child removes both rows from `Current` and shows them nested
-      under `Archived`.
-- [ ] `u` on that archived parent restores parent **and** child to their project dirs; both leave
-      `Archived`, `Current` shows the fork tree intact.
+- [ ] `ctrl+a` on a session whose family contains the open session is refused with a status line
+      and moves nothing (`diff` stays clean).
+- [ ] `ctrl+a` on a session with a fork child removes both rows from `Current` and shows them
+      nested under `Archived`.
+- [ ] `ctrl+u` on that archived parent restores parent **and** child to their project dirs; both
+      leave `Archived`, `Current` shows the fork tree intact.
+- [ ] A token that appears only in message text matches the session whose id, name, and cwd do not
+      contain it; the results flatten (no fork tree) and are ordered by relevance.
+- [ ] A token that appears only in tool output matches nothing; a nonsense query shows
+      `No matches for "<q>"` with `Enter` and the keys as no-ops.
+- [ ] `ctrl+a` on a filtered list archives the highlighted family and drops its row without
+      clearing the query; `ctrl+u` on a filtered `Archived` list restores it the same way.
+- [ ] In `All`, each filtered row still shows its shortened cwd before the message count and age.
 - [ ] `Enter` on an archived session restores it (mtime now) and resumes it; `/new` afterwards
       creates the next session next to it, not inside `archive/`.
 - [ ] `ctrl+d` asks for confirmation; `Esc` cancels; a second `ctrl+d` deletes.
