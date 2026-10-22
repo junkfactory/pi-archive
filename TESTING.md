@@ -66,6 +66,8 @@ PI_CODING_AGENT_DIR=/tmp/pa-agent \
 - [ ] Startup is not delayed; the auto-sweep produces no success noise.
 - [ ] `/pi-archive` renders `Current | All | Archived` and the current scope is preloaded.
 - [ ] `Tab` cycles scopes; `Archived` shows rows only after the first sweep has moved something.
+- [ ] `All` is hidden when every active session belongs to the working directory; restoring a
+      session from another working directory makes it reappear.
 - [ ] `Esc` restores the editor with no stray render.
 
 ### 2. Sweep, then verify the moves

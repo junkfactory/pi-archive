@@ -101,6 +101,7 @@ interface Harness {
 function makeHarness(
 	overrides: {
 		activePath?: string;
+		equalScopes?: boolean;
 		initialScope?: Scope;
 	} & { deps?: Partial<SessionBrowserDeps> } = {},
 ): Harness {
@@ -120,7 +121,11 @@ function makeHarness(
 	} as unknown as Theme;
 
 	const loadScope = vi.fn(
-		overrides.deps?.loadScope ?? (async (scope: Scope) => FIXTURES[scope]),
+		overrides.deps?.loadScope ??
+			(async (scope: Scope) =>
+				overrides.equalScopes && scope !== "archived"
+					? FIXTURES.current
+					: FIXTURES[scope]),
 	);
 	const archive = vi.fn(
 		overrides.deps?.archive ?? (async () => ({ ok: true })),
@@ -186,7 +191,7 @@ describe("SessionBrowser rendering", () => {
 
 		expect(lines[0]).toContain("Sessions");
 		expect(lines[0]).toContain("Current (3)");
-		expect(lines[0]).toContain("All (…)");
+		expect(lines[0]).toContain("All (5)");
 		expect(lines[0]).toContain("Archived (…)");
 		expect(lines[2]).toContain("Tab scope");
 		expect(lines[3]).toBe("");
@@ -254,8 +259,9 @@ describe("SessionBrowser rendering", () => {
 	it("renders a load error inline and keeps the picker open", async () => {
 		const harness = makeHarness({
 			deps: {
-				loadScope: async () => {
-					throw new Error("boom");
+				loadScope: async (scope: Scope) => {
+					if (scope === "current") throw new Error("boom");
+					return FIXTURES[scope];
 				},
 			},
 		});
@@ -269,7 +275,7 @@ describe("SessionBrowser rendering", () => {
 });
 
 describe("SessionBrowser scopes", () => {
-	it("lazily loads each scope once and shows Loading… until it resolves", async () => {
+	it("preloads current and all, then loads archived on demand", async () => {
 		let finish: (sessions: SessionInfo[]) => void = () => {};
 		const deferred = new Promise<SessionInfo[]>((resolve) => {
 			finish = resolve;
@@ -281,11 +287,12 @@ describe("SessionBrowser scopes", () => {
 			},
 		});
 		await settle();
-		expect(harness.loadScope).toHaveBeenCalledTimes(1);
-		expect(harness.loadScope).toHaveBeenLastCalledWith("current");
+		expect(harness.loadScope).toHaveBeenCalledTimes(2);
+		expect(harness.loadScope).toHaveBeenNthCalledWith(1, "current");
+		expect(harness.loadScope).toHaveBeenNthCalledWith(2, "all");
 
 		harness.browser.handleInput("\t");
-		expect(harness.loadScope).toHaveBeenLastCalledWith("all");
+		expect(harness.loadScope).toHaveBeenCalledTimes(2);
 		expect(text(harness)).toContain("Loading…");
 
 		finish(FIXTURES.all);
@@ -298,12 +305,145 @@ describe("SessionBrowser scopes", () => {
 		harness.browser.handleInput("\t");
 		await settle();
 		expect(harness.loadScope).toHaveBeenLastCalledWith("archived");
+		expect(harness.loadScope).toHaveBeenCalledTimes(3);
 		expect(harness.browser.render(80)[0]).toContain("Archived (2)");
 
 		harness.browser.handleInput("\t");
 		await settle();
 		expect(harness.loadScope).toHaveBeenCalledTimes(3);
 		expect(harness.browser.render(80)[0]).toContain("Current (3)");
+	});
+
+	it("hides All when it duplicates Current", async () => {
+		const harness = makeHarness({ equalScopes: true });
+		await settle();
+		const lines = harness.browser.render(80);
+		expect(lines[0]).toContain("Current (3)");
+		expect(lines[0]).toContain("Archived");
+		expect(lines[0]).not.toContain("All");
+
+		harness.browser.handleInput("\t");
+		await settle();
+		expect(harness.browser.render(80)[0]).toContain("Archived (2)");
+		expect(text(harness)).toContain("Archived parent");
+
+		harness.browser.handleInput("\t");
+		await settle();
+		expect(harness.browser.render(80)[0]).toContain("Current (3)");
+		expect(text(harness)).toContain("Active session");
+	});
+
+	it("cycles to Archived with a query and equal lists", async () => {
+		const harness = makeHarness({ equalScopes: true });
+		await settle();
+		harness.browser.handleInput("zebra");
+		harness.browser.handleInput("\t");
+		await settle();
+
+		const lines = harness.browser.render(80);
+		expect(lines[0]).toContain("Archived (0/2)");
+		expect(lines[0]).not.toContain("All");
+		expect(lines[1]).toContain("zebra");
+		expect(lines.join("\n")).toContain('No matches for "zebra"');
+	});
+
+	it("keeps All and its error when the All load rejects", async () => {
+		const harness = makeHarness({
+			deps: {
+				loadScope: async (scope: Scope) => {
+					if (scope === "all") throw new Error("boom");
+					return FIXTURES[scope];
+				},
+			},
+		});
+		await settle();
+		const rendered = text(harness);
+		expect(rendered).toContain("All (0)");
+		expect(rendered).toContain("Failed to load All: boom");
+		expect(rendered).not.toContain("Loading…");
+		expect(rendered).toContain("Active session");
+
+		harness.browser.handleInput("\t");
+		await settle();
+		expect(harness.browser.render(80)[0]).toContain("All (0)");
+	});
+
+	it("falls back to Current when the All list becomes a duplicate", async () => {
+		const foreign = session("/repo/other/foreign.jsonl", {
+			cwd: "/repo/other",
+			name: "Foreign extra",
+			firstMessage: "Foreign extra",
+			allMessagesText: "elsewhere entirely",
+		});
+		const harness = makeHarness({
+			deps: {
+				loadScope: async (scope: Scope) =>
+					scope === "all" ? [...FIXTURES.current, foreign] : FIXTURES[scope],
+				archive: async () => ({ ok: true, count: 1 }),
+			},
+		});
+		await settle();
+		expect(harness.browser.render(80)[0]).toContain("All (4)");
+
+		harness.browser.handleInput("extra");
+		harness.browser.handleInput("\t");
+		await settle();
+		expect(harness.browser.render(80)[0]).toContain("All (1/4)");
+		expect(text(harness)).toContain("Foreign extra");
+
+		harness.browser.handleInput("\x01");
+		await settle();
+
+		expect(harness.archive).toHaveBeenCalledWith(foreign.path);
+		const lines = harness.browser.render(80);
+		expect(lines[0]).toContain("Current");
+		expect(lines[0]).not.toContain("All");
+		expect(lines[1]).toContain("extra");
+		expect(lines[2]).toContain("Archived 1 session(s)");
+		expect(lines.join("\n")).toContain('No matches for "extra"');
+	});
+
+	it("brings All back after restoring a foreign session", async () => {
+		let restored = false;
+		const harness = makeHarness({
+			deps: {
+				loadScope: async (scope: Scope) => {
+					if (scope === "archived") return FIXTURES.archived;
+					if (scope === "all" && restored) {
+						return [...FIXTURES.current, ARCHIVED_PARENT];
+					}
+					return FIXTURES.current;
+				},
+				unarchive: async () => {
+					restored = true;
+					return { ok: true };
+				},
+			},
+		});
+		await settle();
+		expect(harness.browser.render(80)[0]).not.toContain("All");
+
+		harness.browser.handleInput("\t");
+		await settle();
+		expect(harness.browser.render(80)[0]).toContain("Archived (2)");
+
+		harness.browser.handleInput("\x15");
+		await settle();
+
+		expect(harness.unarchive).toHaveBeenCalledWith(ARCHIVED_PARENT.path);
+		expect(harness.loadScope).toHaveBeenCalledTimes(5);
+		let lines = harness.browser.render(80);
+		expect(lines[0]).toContain("Current (3)");
+		expect(lines[0]).toContain("All (4)");
+		expect(lines[2]).toContain("Restored");
+
+		harness.browser.handleInput("\t");
+		await settle();
+		harness.browser.handleInput("\t");
+		await settle();
+		lines = harness.browser.render(80);
+		expect(lines[0]).toContain("All (4)");
+		expect(text(harness)).toContain("Archived parent");
 	});
 
 	it("resets the cursor when the scope changes", async () => {
@@ -384,7 +524,7 @@ describe("SessionBrowser archive", () => {
 		await settle();
 
 		expect(harness.archive).not.toHaveBeenCalled();
-		expect(harness.loadScope).toHaveBeenCalledTimes(1);
+		expect(harness.loadScope).toHaveBeenCalledTimes(2);
 		expect(harness.browser.render(80)[2]).toContain(
 			"Cannot archive the active session",
 		);
@@ -459,7 +599,7 @@ describe("SessionBrowser unarchive", () => {
 		expect(rendered).not.toContain("Archived fork");
 		expect(rendered).toContain("Restored");
 		expect(rendered).toContain("Archived (0)");
-		expect(harness.loadScope).toHaveBeenCalledTimes(3);
+		expect(harness.loadScope).toHaveBeenCalledTimes(5);
 	});
 
 	it("ignores ctrl+u on an active row", async () => {

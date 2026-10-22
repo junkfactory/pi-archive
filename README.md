@@ -68,16 +68,16 @@ count, e.g. `archived 3 from 2 families, purged 0`.
 
 ### Picker keys
 
-| Key             | Action                                                  |
-|-----------------|---------------------------------------------------------|
-| `letters`       | Type to search                                          |
-| `Tab`           | Cycle scope: `Current` → `All` → `Archived`             |
-| `↑` / `↓`       | Move (or `pgup` / `pgdn` for a page)                    |
-| `Enter`         | Open the selected session                               |
-| `ctrl+a`        | Archive the selected family (Current/All only)          |
-| `ctrl+u`        | Restore the selected family (Archived only)             |
-| `ctrl+d`        | Delete (press `ctrl+d` again to confirm)                |
-| `Esc`           | Clear the query, or close the picker when it is empty   |
+| Key             | Action                                                                                      |
+|-----------------|---------------------------------------------------------------------------------------------|
+| `letters`       | Type to search                                                                              |
+| `Tab`           | Cycle scope: `Current` → `All` → `Archived` (`All` is skipped when it duplicates `Current`) |
+| `↑` / `↓`       | Move (or `pgup` / `pgdn` for a page)                                                        |
+| `Enter`         | Open the selected session                                                                   |
+| `ctrl+a`        | Archive the selected family (Current/All only)                                              |
+| `ctrl+u`        | Restore the selected family (Archived only)                                                 |
+| `ctrl+d`        | Delete (press `ctrl+d` again to confirm)                                                    |
+| `Esc`           | Clear the query, or close the picker when it is empty                                       |
 
 Typing while the picker is open starts a search. A query matches each session's id, name, first
 message, user/assistant message text, and cwd; tool output and thinking blocks are not searched.
@@ -87,6 +87,8 @@ start or delete the line.
 
 - `Current` is the sessions of the working directory, `All` is every project, `Archived` is every
   `archive/` directory.
+- When no other working directory has active sessions, `All` would list exactly the `Current`
+  sessions, so the picker hides that tab; `Tab` then cycles `Current` ↔ `Archived`.
 - Selecting the already-open session shows `Session already active` and keeps the picker open.
 - `ctrl+d` deletes the selected row **and its forks** — the whole subtree below it. A fork never
   drags its parent or siblings along, so deleting a child deletes only that child. The confirmation

@@ -137,6 +137,7 @@ export class SessionBrowser implements Component, Focusable {
 	private scope: Scope;
 	private scopes: Partial<Record<Scope, SessionInfo[]>> = {};
 	private loading: Scope[] = [];
+	private readonly loadFailed = new Set<Scope>();
 	private pending = new Map<Scope, Promise<SessionInfo[]>>();
 	private status = "";
 	private statusIsError = false;
@@ -162,6 +163,9 @@ export class SessionBrowser implements Component, Focusable {
 		this.onSelect = options.onSelect;
 		this.onClose = options.onClose;
 		void this.load(this.scope);
+		// `All` hides when it duplicates `Current`; load the other list in the
+		// background so the tab can vanish without blocking the first frame.
+		void this.load(this.scope === "all" ? "current" : "all");
 	}
 
 	invalidate(): void {
@@ -283,6 +287,33 @@ export class SessionBrowser implements Component, Focusable {
 		this.touch();
 	}
 
+	/** `All` is redundant when it holds exactly the `Current` session set. */
+	private allHidden(): boolean {
+		const current = this.scopes.current;
+		const all = this.scopes.all;
+		if (current === undefined || all === undefined) return false;
+		if (this.loadFailed.has("current") || this.loadFailed.has("all")) {
+			return false;
+		}
+		if (current.length !== all.length) return false;
+		const paths = new Set(current.map((session) => resolve(session.path)));
+		return all.every((session) => paths.has(resolve(session.path)));
+	}
+
+	private visibleScopes(): readonly Scope[] {
+		return this.allHidden()
+			? SCOPES.filter((scope) => scope !== "all")
+			: SCOPES;
+	}
+
+	/** A hidden `All` falls back to `Current` without dropping query or status. */
+	private syncVisibleScope(): void {
+		if (this.scope !== "all" || !this.allHidden()) return;
+		this.scope = "current";
+		this.selectedIndex = 0;
+		this.confirmDelete = undefined;
+	}
+
 	private isActive(path: string): boolean {
 		return (
 			this.activePath !== undefined &&
@@ -315,6 +346,14 @@ export class SessionBrowser implements Component, Focusable {
 			);
 		}
 		this.dataVersion++;
+		this.syncVisibleScope();
+	}
+
+	/** Drops a cached scope so the next `load` re-reads it. */
+	private forget(scope: Scope): void {
+		delete this.scopes[scope];
+		this.loadFailed.delete(scope);
+		this.dataVersion++;
 	}
 
 	/** Lazy load: one call per scope, cached even when the load fails. */
@@ -331,11 +370,13 @@ export class SessionBrowser implements Component, Focusable {
 			.loadScope(scope)
 			.then(
 				(sessions) => {
+					this.loadFailed.delete(scope);
 					this.scopes[scope] = sessions;
 					this.dataVersion++;
 					return sessions;
 				},
 				(error: unknown) => {
+					this.loadFailed.add(scope);
 					this.scopes[scope] = [];
 					this.setStatus(
 						`Failed to load ${LABELS[scope]}: ${errorMessage(error)}`,
@@ -347,6 +388,7 @@ export class SessionBrowser implements Component, Focusable {
 			.finally(() => {
 				this.loading = this.loading.filter((loading) => loading !== scope);
 				this.pending.delete(scope);
+				this.syncVisibleScope();
 				this.clampSelection();
 				this.touch();
 			});
@@ -357,8 +399,9 @@ export class SessionBrowser implements Component, Focusable {
 	// ---- actions -----------------------------------------------------------
 
 	private cycleScope(): void {
-		const index = SCOPES.indexOf(this.scope);
-		const next = SCOPES[(index + 1) % SCOPES.length];
+		const scopes = this.visibleScopes();
+		const index = scopes.indexOf(this.scope);
+		const next = scopes[(index + 1) % scopes.length];
 		if (next === undefined) return;
 		this.scope = next;
 		this.selectedIndex = 0;
@@ -452,6 +495,12 @@ export class SessionBrowser implements Component, Focusable {
 			return;
 		}
 		this.dropPaths(members.map((member) => member.path));
+		// Restored files re-enter `Current`/`All`; refresh so their counts and the
+		// `All`-duplicates-`Current` check stay truthful.
+		this.forget("current");
+		this.forget("all");
+		void this.load("current");
+		void this.load("all");
 		this.clampSelection();
 		this.setStatus("Restored", false);
 	}
@@ -505,7 +554,7 @@ export class SessionBrowser implements Component, Focusable {
 	// ---- rendering ---------------------------------------------------------
 
 	private headerLine(width: number): string {
-		const parts = SCOPES.map((scope) => {
+		const parts = this.visibleScopes().map((scope) => {
 			const label = this.countLabel(scope);
 			return scope === this.scope
 				? this.theme.fg("accent", label)
