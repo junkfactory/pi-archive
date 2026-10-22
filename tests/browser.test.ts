@@ -482,7 +482,8 @@ describe("SessionBrowser delete", () => {
 		await settle();
 		harness.browser.handleInput("\x04");
 		expect(harness.remove).not.toHaveBeenCalled();
-		expect(harness.browser.render(80)[1]).toContain("Delete session?");
+		await settle();
+		expect(harness.browser.render(80)[1]).toContain("Delete 2 sessions");
 
 		harness.browser.handleInput("\x04");
 		await settle();
@@ -492,14 +493,46 @@ describe("SessionBrowser delete", () => {
 		expect(rendered).toContain("Deleted");
 	});
 
+	it("ignores the confirming ctrl+d until the subtree count is known", async () => {
+		const harness = makeHarness();
+		await settle();
+		harness.browser.handleInput("\x04");
+		// Same tick: the All/Archived loads have not resolved, so the prompt
+		// cannot yet say how many sessions die. The confirm must not take.
+		harness.browser.handleInput("\x04");
+		expect(harness.remove).not.toHaveBeenCalled();
+		await settle();
+		expect(harness.browser.render(80)[1]).toContain("Delete 2 sessions");
+	});
+
+	it("drops every deleted row when remove reports a subtree", async () => {
+		const harness = makeHarness({
+			deps: {
+				remove: async () => ({ ok: true, paths: [ACTIVE.path, CHILD.path] }),
+			},
+		});
+		await settle();
+		harness.browser.handleInput("\x04");
+		await settle();
+		expect(harness.browser.render(80)[1]).toContain("Delete 2 sessions");
+		harness.browser.handleInput("\x04");
+		await settle();
+		const rendered = text(harness);
+		expect(rendered).not.toContain("Active session");
+		expect(rendered).not.toContain("Fork child");
+		expect(rendered).toContain("Deleted 2 sessions");
+		expect(rendered).toContain("Other session");
+	});
+
 	it("cancels the confirmation with escape, then closes on escape", async () => {
 		const harness = makeHarness();
 		await settle();
 		harness.browser.handleInput("\x04");
+		await settle();
 		harness.browser.handleInput("\x1b");
 		expect(harness.onClose).not.toHaveBeenCalled();
 		expect(harness.remove).not.toHaveBeenCalled();
-		expect(harness.browser.render(80)[1]).not.toContain("Delete session?");
+		expect(harness.browser.render(80)[1]).not.toContain("Delete session");
 		expect(harness.browser.render(80)[1]).toContain("Tab scope");
 
 		harness.browser.handleInput("\x1b");
@@ -514,6 +547,7 @@ describe("SessionBrowser delete", () => {
 		});
 		await settle();
 		harness.browser.handleInput("\x04");
+		await settle();
 		harness.browser.handleInput("\x04");
 		await settle();
 		expect(text(harness)).toContain("unlink denied");

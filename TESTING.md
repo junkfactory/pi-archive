@@ -103,6 +103,9 @@ diff -r --brief ~/.pi/agent/sessions /tmp/pa-agent/sessions | head -40
 - [ ] `Enter` on an archived session restores it (mtime now) and resumes it; `/new` afterwards
       creates the next session next to it, not inside `archive/`.
 - [ ] `ctrl+d` asks for confirmation; `Esc` cancels; a second `ctrl+d` deletes.
+- [ ] `ctrl+d` on a parent deletes the parent **and** its forks in one go; the prompt names the
+      count (`Delete 2 sessions …`) and every row leaves the picker.
+- [ ] `ctrl+d` on a fork deletes only that fork; the parent and siblings stay.
 
 ### 4. Purge, and purge with `trash` absent
 

@@ -56,6 +56,8 @@ export interface RemoveAction {
 	ok: boolean;
 	method?: string;
 	error?: string;
+	/** Files actually removed: the row's whole subtree, root first. */
+	paths?: string[];
 }
 
 export interface SessionActions {
@@ -171,7 +173,53 @@ export function makeActions(d: SessionActionDeps): SessionActions {
 		if (active !== undefined && samePath(path, active)) {
 			return { ok: false, error: "Cannot delete the active session" };
 		}
-		return deleteSessionFile(path, d.archiveDeps);
+
+		// Subtree, not ancestry: deleting a row takes its forks with it, but a
+		// fork never drags its parent along. A family can straddle `archive/`,
+		// so both scopes are merged — `All` misses archived forks and `Archived`
+		// misses live ones. A failed scan falls back to the row alone rather than
+		// rejecting: `remove` must never throw onto the picker's key handler.
+		let merged: SessionInfo[] = [];
+		try {
+			const [all, archived] = await Promise.all([
+				load("all"),
+				load("archived"),
+			]);
+			merged = [...all, ...archived];
+		} catch {
+			merged = [];
+		}
+		const family = familyMembers(merged, path);
+		const members = family.length > 0 ? family.map((s) => s.path) : [path];
+
+		if (active !== undefined && members.some((p) => samePath(p, active))) {
+			return {
+				ok: false,
+				error: "Cannot delete: family contains the active session",
+			};
+		}
+
+		const paths: string[] = [];
+		let method: string | undefined;
+		for (const member of members) {
+			const result = await deleteSessionFile(member, d.archiveDeps);
+			if (!result.ok) {
+				// Trash is not transactional: report what is already gone so the
+				// picker can drop those rows instead of claiming all survived.
+				return {
+					ok: false,
+					paths,
+					method,
+					error:
+						paths.length === 0
+							? result.error
+							: `Deleted ${paths.length} of ${members.length}, then failed: ${result.error}`,
+				};
+			}
+			paths.push(member);
+			method = result.method;
+		}
+		return { ok: true, paths, method };
 	}
 
 	return { load, archive, unarchive, remove };

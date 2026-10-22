@@ -41,6 +41,8 @@ export interface RemoveResult {
 	ok: boolean;
 	method?: string;
 	error?: string;
+	/** Files actually removed: the row's whole subtree, root first. */
+	paths?: string[];
 }
 
 /** Filesystem seams. `done()` is deliberately absent — see the module docs. */
@@ -108,7 +110,10 @@ export class SessionBrowser implements Component, Focusable {
 	private pending = new Map<Scope, Promise<SessionInfo[]>>();
 	private status = "";
 	private statusIsError = false;
-	private confirmDelete: string | undefined;
+	/** `count` is `undefined` while the subtree is still being resolved. */
+	private confirmDelete:
+		| { path: string; count: number | undefined }
+		| undefined;
 	private selectedIndex = 0;
 	private cachedLines: string[] | undefined;
 	private cachedWidth = -1;
@@ -142,6 +147,15 @@ export class SessionBrowser implements Component, Focusable {
 	handleInput(data: string): void {
 		const keybindings = this.keybindings;
 		if (this.confirmDelete !== undefined) {
+			// Deleting removes the row's subtree, so the count must be on screen
+			// before a second ctrl+d is accepted.
+			if (this.confirmDelete.count === undefined) {
+				if (keybindings.matches(data, "tui.select.cancel")) {
+					this.confirmDelete = undefined;
+					this.touch();
+				}
+				return;
+			}
 			if (keybindings.matches(data, "app.session.delete")) {
 				void this.confirmRemoval();
 				return;
@@ -373,22 +387,47 @@ export class SessionBrowser implements Component, Focusable {
 	private startDelete(): void {
 		const row = this.selectedRow();
 		if (!row) return;
-		this.confirmDelete = row.session.path;
+		const target = row.session.path;
+		this.confirmDelete = { path: target, count: undefined };
+		this.touch();
+		void this.resolveDeleteCount(target);
+	}
+
+	/** `remove` deletes the subtree, so the prompt reports its real size. */
+	private async resolveDeleteCount(path: string): Promise<void> {
+		const [all, archived] = await Promise.all([
+			this.load("all"),
+			this.load("archived"),
+		]);
+		const pending = this.confirmDelete;
+		if (pending === undefined || resolve(pending.path) !== resolve(path))
+			return;
+		const family = familyMembers([...all, ...archived], path);
+		this.confirmDelete = {
+			path,
+			count: Math.max(1, family.length),
+		};
 		this.touch();
 	}
 
 	private async confirmRemoval(): Promise<void> {
-		const path = this.confirmDelete;
-		if (path === undefined) return;
+		const pending = this.confirmDelete;
+		if (pending === undefined || pending.count === undefined) return;
 		this.confirmDelete = undefined;
-		const result = await this.deps.remove(path);
+		const result = await this.deps.remove(pending.path);
+		const removed = result.paths ?? (result.ok ? [pending.path] : []);
+		if (removed.length > 0) {
+			this.dropPaths(removed);
+			this.clampSelection();
+		}
 		if (!result.ok) {
 			this.setStatus(result.error ?? "Delete failed", true);
 			return;
 		}
-		this.dropPaths([path]);
-		this.clampSelection();
-		this.setStatus("Deleted", false);
+		this.setStatus(
+			removed.length > 1 ? `Deleted ${removed.length} sessions` : "Deleted",
+			false,
+		);
 	}
 
 	// ---- rendering ---------------------------------------------------------
@@ -413,15 +452,21 @@ export class SessionBrowser implements Component, Focusable {
 		return `${LABELS[scope]} (${count})`;
 	}
 
+	/** Names the real blast radius: `remove` deletes the whole subtree. */
+	private confirmDeletePrompt(): string {
+		const count = this.confirmDelete?.count;
+		if (count === undefined)
+			return "Delete session and its forks? Esc to cancel";
+		const what =
+			count > 1 ? `${count} sessions (this row and its forks)` : "session";
+		return `Delete ${what}? Press Ctrl+D again to confirm · Esc to cancel`;
+	}
+
 	private hintLine(width: number): string {
 		if (this.confirmDelete !== undefined) {
 			return this.theme.fg(
 				"error",
-				truncateToWidth(
-					"Delete session? Press Ctrl+D again to confirm · Esc to cancel",
-					width,
-					"…",
-				),
+				truncateToWidth(this.confirmDeletePrompt(), width, "…"),
 			);
 		}
 		if (this.status) {

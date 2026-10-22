@@ -75,12 +75,14 @@ count, e.g. `archived 3 from 2 families, purged 0`.
 | `Enter`         | Open the selected session                          |
 | `u`             | Restore the selected archived family               |
 | `a`             | Archive the selected session and its family        |
-| `ctrl+d`        | Delete (press `ctrl+d` again to confirm)           |
-| `Esc`           | Close the picker (or cancel a pending delete)      |
+| `ctrl+d`        | Delete (press `ctrl+d` again to confirm)           || `Esc`           | Close the picker (or cancel a pending delete)      |
 
 - `Current` is the sessions of the working directory, `All` is every project, `Archived` is every
   `archive/` directory.
 - Selecting the already-open session shows `Session already active` and keeps the picker open.
+- `ctrl+d` deletes the selected row **and its forks** — the whole subtree below it. A fork never
+  drags its parent or siblings along, so deleting a child deletes only that child. The confirmation
+  states how many sessions die before a second `ctrl+d` is accepted.
 - Selecting an archived session restores it to its project directory first, then resumes it; `/new`
   afterwards lands next to the restored file, not inside `archive/`.
 - `a` is refused for the open session, for a family that contains the open session, and for a family
@@ -104,7 +106,9 @@ Sessions and their forks are treated as one unit:
 Archived files older than `sessionArchivePurgeDays` are deleted with `trash` (macOS
 `/usr/bin/trash`). Unattended purge **never** falls back to `unlink`: if `trash` is missing or
 fails, the whole purge phase is skipped with one warning and every file is left in place.
-Manual deletion in the picker (`ctrl+d`) is interactive and may fall back to `unlink`.
+Manual deletion in the picker (`ctrl+d`) is interactive and may fall back to `unlink`. It deletes
+one subtree at a time (the row plus its forks), and refuses outright when that subtree contains the
+session you have open.
 
 ## What it does not change
 

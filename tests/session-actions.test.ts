@@ -367,6 +367,185 @@ describe("remove", () => {
 		expect(trashed).toEqual([path]);
 		expect(await exists(path)).toBe(false);
 	});
+
+	it("deletes the whole subtree when the row has forks", async () => {
+		const parent = await addSession(projectA, "parent.jsonl");
+		const childA = await addSession(projectA, "child-a.jsonl", {
+			parentSession: "parent",
+		});
+		const childB = await addSession(projectB, "child-b.jsonl", {
+			parentSession: "parent",
+		});
+		const trashed: string[] = [];
+		const actions = makeActions(
+			deps({
+				listAll: vi.fn(async () => [
+					session(parent),
+					session(childA, { parentSessionPath: parent }),
+					session(childB, { parentSessionPath: parent }),
+				]),
+				archiveDeps: {
+					trash: async (target) => {
+						trashed.push(target);
+						await rm(target, { force: true });
+						return { ok: true, exitCode: 0 };
+					},
+				},
+			}),
+		);
+
+		const result = await actions.remove(parent);
+
+		expect(result.ok).toBe(true);
+		expect(result.paths).toEqual([parent, childA, childB]);
+		expect(trashed).toEqual([parent, childA, childB]);
+	});
+
+	it("deletes only the child when the row is a fork", async () => {
+		const parent = await addSession(projectA, "parent.jsonl");
+		const child = await addSession(projectA, "child.jsonl", {
+			parentSession: "parent",
+		});
+		const trashed: string[] = [];
+		const actions = makeActions(
+			deps({
+				listAll: vi.fn(async () => [
+					session(parent),
+					session(child, { parentSessionPath: parent }),
+				]),
+				archiveDeps: {
+					trash: async (target) => {
+						trashed.push(target);
+						await rm(target, { force: true });
+						return { ok: true, exitCode: 0 };
+					},
+				},
+			}),
+		);
+
+		const result = await actions.remove(child);
+
+		expect(result.paths).toEqual([child]);
+		expect(trashed).toEqual([child]);
+		expect(await exists(parent)).toBe(true);
+	});
+
+	it("takes a fork's own children but not its ancestors", async () => {
+		const root = await addSession(projectA, "root.jsonl");
+		const middle = await addSession(projectA, "middle.jsonl", {
+			parentSession: "root",
+		});
+		const leaf = await addSession(projectA, "leaf.jsonl", {
+			parentSession: "middle",
+		});
+		const trashed: string[] = [];
+		const actions = makeActions(
+			deps({
+				listAll: vi.fn(async () => [
+					session(root),
+					session(middle, { parentSessionPath: root }),
+					session(leaf, { parentSessionPath: middle }),
+				]),
+				archiveDeps: {
+					trash: async (target) => {
+						trashed.push(target);
+						await rm(target, { force: true });
+						return { ok: true, exitCode: 0 };
+					},
+				},
+			}),
+		);
+
+		const result = await actions.remove(middle);
+
+		expect(result.paths).toEqual([middle, leaf]);
+		expect(trashed).toEqual([middle, leaf]);
+		expect(await exists(root)).toBe(true);
+	});
+
+	it("reaches archived forks of a live parent", async () => {
+		const parent = await addSession(projectA, "parent.jsonl");
+		await addSession(join(projectA, "archive"), "child.jsonl", {
+			parentSession: parent,
+		});
+		const archivedChild = join(projectA, "archive", "child.jsonl");
+		const trashed: string[] = [];
+		const actions = makeActions(
+			deps({
+				listAll: vi.fn(async () => [session(parent)]),
+				archiveDeps: {
+					trash: async (target) => {
+						trashed.push(target);
+						await rm(target, { force: true });
+						return { ok: true, exitCode: 0 };
+					},
+				},
+			}),
+		);
+
+		const result = await actions.remove(parent);
+
+		expect(result.paths).toEqual([parent, archivedChild]);
+		expect(await exists(archivedChild)).toBe(false);
+	});
+
+	it("refuses a subtree that contains the open session", async () => {
+		const parent = await addSession(projectA, "parent.jsonl");
+		const child = await addSession(projectA, "child.jsonl", {
+			parentSession: "parent",
+		});
+		activeFile = child;
+		const spy = vi.fn(async () => ({ ok: true, exitCode: 0 }));
+		const actions = makeActions(
+			deps({
+				listAll: vi.fn(async () => [
+					session(parent),
+					session(child, { parentSessionPath: parent }),
+				]),
+				archiveDeps: { trash: spy },
+			}),
+		);
+
+		const result = await actions.remove(parent);
+
+		expect(result).toEqual({
+			ok: false,
+			error: "Cannot delete: family contains the active session",
+		});
+		expect(spy).not.toHaveBeenCalled();
+		expect(await exists(parent)).toBe(true);
+	});
+
+	it("reports the partial loss when a later member fails", async () => {
+		const parent = await addSession(projectA, "parent.jsonl");
+		const child = await addSession(projectA, "child.jsonl", {
+			parentSession: "parent",
+		});
+		const actions = makeActions(
+			deps({
+				listAll: vi.fn(async () => [
+					session(parent),
+					session(child, { parentSessionPath: parent }),
+				]),
+				archiveDeps: {
+					trash: async (target) => {
+						if (target === child) return { ok: false, exitCode: 1 };
+						await rm(target, { force: true });
+						return { ok: true, exitCode: 0 };
+					},
+					unlink: (async () => {
+						throw Object.assign(new Error("denied"), { code: "EACCES" });
+					}) as unknown as typeof import("node:fs/promises").unlink,
+				},
+			}),
+		);
+
+		const result = await actions.remove(parent);
+
+		expect(result.ok).toBe(false);
+		expect(result.paths).toEqual([parent]);
+		expect(result.error).toContain("Deleted 1 of 2");
+	});
 });
 
 describe("selectSession", () => {
