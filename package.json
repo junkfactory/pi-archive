@@ -15,7 +15,7 @@
 	"scripts": {
 		"check": "tsc --noEmit",
 		"test": "vitest run",
-		"lint": "biome check src tests"
+		"lint": "biome check ."
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",
