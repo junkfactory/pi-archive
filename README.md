@@ -17,7 +17,7 @@ pi install git:github.com/junkfactory/pi-archive
 Try it without installing:
 
 ```bash
-pi --extension /path/to/pi-archive/src/index.ts
+pi --extension /path/to/pi-archive/extensions/index.ts
 ```
 
 ## Settings

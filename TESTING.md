@@ -23,7 +23,7 @@ Tests use `mkdtemp` fixtures and injected fakes for every filesystem and subproc
 ## Dev loop
 
 ```bash
-pi --extension ./src/index.ts
+pi --extension ./extensions/index.ts
 ```
 
 Within that session:
@@ -60,7 +60,7 @@ du -sh /tmp/pa-agent/sessions                   # note the baseline size
 
 ```bash
 PI_CODING_AGENT_DIR=/tmp/pa-agent \
-  pi --extension ./src/index.ts
+  pi --extension ./extensions/index.ts
 ```
 
 - [ ] Startup is not delayed; the auto-sweep produces no success noise.
@@ -145,7 +145,7 @@ for d in /bin /usr/bin /usr/local/bin /opt/homebrew/bin; do
 done
 env PATH=/tmp/pa-path sh -c 'command -v trash || echo "no trash on PATH"'
 PI_CODING_AGENT_DIR=/tmp/pa-agent PATH=/tmp/pa-path \
-  pi --extension ./src/index.ts
+  pi --extension ./extensions/index.ts
 ```
 
 - [ ] The pre-flight check prints `no trash on PATH`, confirming the setup.
@@ -164,7 +164,7 @@ Window A and window B are two terminals running the same command:
 
 ```bash
 PI_CODING_AGENT_DIR=/tmp/pa-agent \
-  pi --extension ./src/index.ts
+  pi --extension ./extensions/index.ts
 ```
 
 - [ ] In window A, `/resume` into a session old enough to be stale (mtime older than
