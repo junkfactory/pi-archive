@@ -47,12 +47,20 @@ npx vitest run
 # v1.0.0: the tag pointed at a descriptionless commit). Instead, describe
 # the empty @ FIRST, then `jj commit` folds the bump into that described
 # commit — the tag lands on a properly-described release commit.
+#
+# Where the tag lands: `jj commit` finalizes the working copy and leaves a
+# fresh empty commit on top, so the release commit — the one carrying the
+# version bump and the description — is @- afterwards. main is set to @- and
+# the tag follows main, so both point at that commit. Tagging the empty @
+# is what left pi-memory v1.0.0 and pi-bridge.ext v1.2.0/v1.3.0 on a
+# descriptionless commit. The release commit is verified by its description
+# before anything is tagged or pushed.
 if [[ -n "${DRY_RUN:-}" ]]; then
   echo "DRY_RUN: npm version $VERSION --no-git-tag-version"
   echo "DRY_RUN: jj describe -m 'chore: release $TAG'   # if @ is empty"
   echo "DRY_RUN: jj commit -m 'chore: release $TAG'      # if @ has changes"
-  echo "DRY_RUN: jj bookmark set main -r @"
-  echo "DRY_RUN: jj tag set $TAG -r @"
+  echo "DRY_RUN: jj bookmark set main -r @-              # the release commit"
+  echo "DRY_RUN: jj tag set $TAG -r main"
   echo "DRY_RUN: jj git push --bookmark main --tag $TAG"
 else
   npm version "$VERSION" --no-git-tag-version
@@ -66,8 +74,17 @@ else
     jj describe -m "chore: release $TAG"
   fi
   jj commit -m "chore: release $TAG"
-  jj bookmark set main -r @
-  jj tag set "$TAG" -r @
+  # `jj commit` leaves a fresh empty commit on top, so the release commit is
+  # @- now. Verify it before tagging: a wrong target would publish a tag on
+  # a descriptionless commit.
+  RELEASE_REV="@-"
+  RELEASE_DESC="$(jj log -r "$RELEASE_REV" --no-pager -T 'description')"
+  if [[ "$RELEASE_DESC" != *"chore: release $TAG"* ]]; then
+    echo "Release commit not found at $RELEASE_REV; aborting before tagging." >&2
+    exit 1
+  fi
+  jj bookmark set main -r "$RELEASE_REV"
+  jj tag set "$TAG" -r main
   jj git push --bookmark main --tag "$TAG"
 fi
 
