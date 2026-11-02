@@ -2,7 +2,7 @@
 	"name": "pi-archive",
 	"private": true,
 	"type": "module",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Pi extension that auto-archives stale sessions and browses archived sessions in a /pi-archive picker",
 	"keywords": [
 		"pi-package"
