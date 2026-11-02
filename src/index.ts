@@ -154,6 +154,7 @@ async function openBrowser(ctx: ExtensionCommandContext): Promise<void> {
 				onSelect: (path) => done({ kind: "select", path }),
 				onClose: () => done({ kind: "close" }),
 			}),
+		{ blocked: { kind: "question", message: "Pick a session to restore" } },
 	);
 
 	if (result.kind !== "select") return;

@@ -730,6 +730,7 @@ describe("/pi-archive wiring", () => {
 		const custom = vi.fn(
 			async (
 				factory: (...args: never[]) => unknown,
+				_uiOptions?: { blocked?: { kind?: string } },
 			): Promise<BrowserResult> => {
 				options.order.push("custom");
 				const component = (
@@ -794,6 +795,10 @@ describe("/pi-archive wiring", () => {
 
 		expect(order).toEqual(["idle", "custom", "switch"]);
 		expect(base.switchSession).toHaveBeenCalledWith(file);
+		// Inline browser: pi reports the session as blocked on a pick.
+		expect(base.ui.custom.mock.calls[0]?.[1]).toMatchObject({
+			blocked: { kind: "question" },
+		});
 		expect(base.ui.notify).not.toHaveBeenCalled();
 		// Nothing may touch the (stale) context after switchSession resolves.
 		expect(state.violations).toEqual([]);
